@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Desktop - Viewer</title>
+    <style>
+        body { margin: 0; background-color: #1e1e1e; color: white; display: flex; flex-direction: column; align-items: center; font-family: sans-serif; overflow-x: hidden; }
+        h2 { margin: 10px 0; }
+        #screen-container { border: 2px solid #555; padding: 0; background: #000; position: relative; }
+        #screen { width: 1024px; max-width: 100vw; height: auto; cursor: crosshair; display: block; }
+        
+        /* Meniul lateral (Stil AnyDesk) */
+        #tools-menu {
+            position: fixed;
+            right: -220px; /* Ascuns în dreapta implicit */
+            top: 60px;
+            width: 200px;
+            background: #2d2d2d;
+            padding: 15px;
+            transition: right 0.3s ease;
+            border: 1px solid #555;
+            border-radius: 10px 0 0 10px;
+            box-shadow: -2px 0 10px rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        #tools-menu.open { right: 0; }
+        
+        /* Butonul care trage meniul (rotița zimțată) */
+        .toggle-btn {
+            position: absolute;
+            left: -45px;
+            top: 15px;
+            width: 45px;
+            height: 45px;
+            background: #0078D7;
+            color: white;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            border-radius: 10px 0 0 10px;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.3);
+        }
+        
+        /* Butoanele de comenzi din meniu */
+        .tool-btn {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #444;
+            color: white;
+            border: 1px solid #666;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .tool-btn:active { background: #666; }
+
+        /* Câmp invizibil pentru a forța tastatura pe mobil */
+        #mobile-keyboard { position: absolute; opacity: 0; top: -1000px; }
+    </style>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+    <h2>Panou de Control</h2>
+    
+    <div id="screen-container">
+        <img id="screen" alt="Aștept semnal video de la Host..." />
+    </div>
+
+    <!-- Meniul lateral ascuns -->
+    <div id="tools-menu">
+        <button class="toggle-btn" onclick="toggleMenu()">⚙️</button>
+        <button class="tool-btn" onclick="openMobileKeyboard()">⌨️ Tastatură Mobil</button>
+        <hr style="border-color: #555; margin: 15px 0;">
+        <button class="tool-btn" onclick="sendHotkey(['win'])">Start (Win)</button>
+        <button class="tool-btn" onclick="sendHotkey(['ctrl', 'c'])">Copiază (Ctrl+C)</button>
+        <button class="tool-btn" onclick="sendHotkey(['ctrl', 'v'])">Lipește (Ctrl+V)</button>
+        <button class="tool-btn" onclick="sendHotkey(['alt', 'tab'])">Alt + Tab</button>
+        <button class="tool-btn" onclick="sendKey('enter')">Enter</button>
+        <button class="tool-btn" onclick="sendKey('backspace')">Backspace</button>
+    </div>
+
+    <input type="text" id="mobile-keyboard" autocomplete="off" />
+
+    <script>
+        const RENDER_URL = 'https://pair-pair.onrender.com';
+        const socket = io(RENDER_URL);
+        const screenImg = document.getElementById('screen');
+        const mobileInput = document.getElementById('mobile-keyboard');
+
+        socket.on('screen-data', (base64Image) => {
+            screenImg.src = 'data:image/jpeg;base64,' + base64Image;
+        });
+
+        // 1. CONTROL MOUSE
+        screenImg.addEventListener('click', (e) => {
+            const rect = screenImg.getBoundingClientRect();
+            const clickX = (e.clientX - rect.left) / rect.width;
+            const clickY = (e.clientY - rect.top) / rect.height;
+            socket.emit('remote-command', { type: 'click', x: clickX, y: clickY });
+        });
+
+        // 2. LOGICĂ MENIU LATERAL
+        function toggleMenu() {
+            document.getElementById('tools-menu').classList.toggle('open');
+        }
+
+        // 3. TRIMITERE COMENZI TASTATURĂ
+        function sendKey(key) { socket.emit('remote-command', { type: 'key', key: key }); }
+        function sendHotkey(keys) { socket.emit('remote-command', { type: 'hotkey', keys: keys }); }
+
+        // 4. SUPORT TASTATURĂ FIZICĂ (PC)
+        const keyMap = {
+            'control': 'ctrl', 'meta': 'win', 'escape': 'esc', ' ': 'space',
+            'arrowup': 'up', 'arrowdown': 'down', 'arrowleft': 'left', 'arrowright': 'right'
+        };
+
+        document.addEventListener('keydown', (e) => {
+            // Prevenim acțiunea implicită a browserului pentru taste speciale (ex: F5, Tab)
+            if(['Tab', 'Alt', 'Control', 'Meta'].includes(e.key)) e.preventDefault();
+            
+            let key = e.key.toLowerCase();
+            key = keyMap[key] || key; // Convertim tasta pentru Python
+            sendKey(key);
+        });
+
+        // 5. SUPORT TASTATURĂ MOBILĂ (Telefon)
+        function openMobileKeyboard() {
+            mobileInput.focus();
+            mobileInput.click();
+            toggleMenu(); // Închidem meniul după ce activăm tastatura
+        }
+
+        // Capturăm literele tastate pe telefon
+        mobileInput.addEventListener('input', (e) => {
+            if (e.data) { sendKey(e.data.toLowerCase()); }
+            mobileInput.value = ''; // Golim câmpul imediat
+        });
+
+        // Capturăm Backspace/Enter de pe tastatura telefonului
+        mobileInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Backspace' || e.key === 'Enter') {
+                sendKey(e.key.toLowerCase());
+            }
+        });
+    </script>
+</body>
+</html>
